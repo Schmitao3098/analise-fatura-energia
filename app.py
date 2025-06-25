@@ -129,15 +129,22 @@ def gerar_sugestoes(resultado):
 
     if grupo == "Grupo B":
         sugestoes.append("⚡ Grupo B: zero grid pode compensar se o consumo for majoritariamente diurno.")
-        if media > 2000 and pico / media > 1.5:
-            sugestoes.append("🔒 Considere uso de Grid-Zero para evitar injeção indevida na rede.")
+
+        # Análise mais precisa de Grid-Zero
+        if media > 2000 and pico / media > 1.4:
+            sugestoes.append("🔒 Considere uso de Grid-Zero para evitar injeção indevida na rede. "
+                             "Segundo a CHINT, essa solução é ideal quando há geração solar em locais com pouco consumo noturno "
+                             "ou sem contrato de compensação.")
+
     elif grupo == "Grupo A":
         sugestoes.append("📈 Grupo A: atenção à demanda e horário ponta/fora de ponta.")
-        if sazonalidade > 4000:
-            sugestoes.append("🔋 Considere sistema BESS para reduzir picos e economizar demanda contratada.")
+        if sazonalidade > 4000 or pico > media * 2:
+            sugestoes.append("🔋 Considere sistema BESS (baterias) para reduzir picos e economizar demanda contratada.")
 
+    # Análise complementar do BESS com base na sazonalidade
     if sazonalidade and sazonalidade > 4000:
-        sugestoes.append("📉 Consumo muito variável: baterias (BESS) podem ajudar a equilibrar.")
+        sugestoes.append("📉 Consumo muito variável: baterias (BESS) podem ajudar a equilibrar. "
+                         "A CHINT recomenda BESS especialmente em casos com variação mensal acima de 30%.")
 
     return sugestoes
 

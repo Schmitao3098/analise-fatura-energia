@@ -7,7 +7,7 @@ import io
 import matplotlib.pyplot as plt
 import pandas as pd
 from fpdf import FPDF
-import os
+import base64
 
 st.set_page_config(page_title="Analisador Solar", layout="centered")
 st.title("🔎 Analisador de Faturas Copel - Solar & Estratégia")
@@ -97,9 +97,10 @@ def gerar_sugestoes(res):
     else:
         sugestoes.append("✅ Bom perfil para energia solar.")
 
-    if res.get("grupo") == "Grupo B":
+    grupo = res.get("grupo", "Não identificado")
+    if grupo == "Grupo B":
         sugestoes.append("⚡ Grupo B: zero grid pode compensar se o consumo for diurno.")
-    else:
+    elif grupo == "Grupo A":
         sugestoes.append("⚠️ Grupo A: atenção à demanda e horários de ponta.")
 
     if res.get("sazonalidade", 0) > 4000:
@@ -108,6 +109,9 @@ def gerar_sugestoes(res):
     return sugestoes
 
 def gerar_grafico(consumos):
+    if not consumos:
+        return None
+
     df = pd.DataFrame(list(consumos.items()), columns=["Mês", "kWh"])
     fig, ax = plt.subplots(figsize=(8,4))
     ax.bar(df["Mês"], df["kWh"], color='goldenrod')
@@ -125,20 +129,23 @@ def gerar_pdf(resumo, grafico_buffer):
     pdf.add_page()
     pdf.set_font("Arial", size=12)
     pdf.cell(200, 10, "Relatório Solar - Análise de Fatura", ln=True)
-    pdf.cell(200, 10, f"Grupo: {resumo['grupo']}", ln=True)
-    pdf.cell(200, 10, f"Média: {resumo['media']} kWh | Sistema: {resumo['kwp']} kWp", ln=True)
-    pdf.cell(200, 10, f"Economia: R$ {resumo['economia']} | Payback: {resumo['payback']} anos", ln=True)
-    img_path = "grafico_temp.png"
-    with open(img_path, "wb") as f:
-        f.write(grafico_buffer.read())
-    pdf.image(img_path, x=10, y=60, w=180)
-    os.remove(img_path)
+    pdf.cell(200, 10, f"Grupo: {resumo.get('grupo', 'Não identificado')}", ln=True)
+    pdf.cell(200, 10, f"Média: {resumo.get('media', 0)} kWh | Sistema: {resumo.get('kwp', 0)} kWp", ln=True)
+    pdf.cell(200, 10, f"Economia: R$ {resumo.get('economia', 0)} | Payback: {resumo.get('payback', 0)} anos", ln=True)
+
+    if grafico_buffer:
+        img_path = "grafico_temp.png"
+        with open(img_path, "wb") as f:
+            f.write(grafico_buffer.read())
+        pdf.image(img_path, x=10, y=60, w=180)
+        os.remove(img_path)
+
     pdf_output = io.BytesIO()
-    pdf.output(pdf_output)
+    pdf_output.write(pdf.output(dest='S').encode('latin1'))
     pdf_output.seek(0)
     return pdf_output
 
-# === EXECUÇÃO ===
+# === EXECUÇÃO PRINCIPAL ===
 if uploaded_file:
     texto = extrair_texto(uploaded_file)
     dados = analisar(texto)
@@ -161,11 +168,12 @@ if uploaded_file:
     st.write(f"📅 Payback estimado: **{resumo['payback']} anos**")
 
     st.subheader("💡 Estratégias Sugeridas")
-    for s in gerar_sugestoes(resumo):
+    for s in gerar_sugestoes(dados):
         st.markdown(f"- {s}")
 
     grafico = gerar_grafico(dados["consumos"])
-    st.image(grafico)
+    if grafico:
+        st.image(grafico)
 
     pdf_download = gerar_pdf(dados, grafico)
     st.download_button("📥 Baixar Relatório em PDF", data=pdf_download, file_name="relatorio_solar.pdf")

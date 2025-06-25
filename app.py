@@ -16,11 +16,24 @@ uploaded_file = st.file_uploader("Envie a fatura (PDF ou imagem)", type=["pdf", 
 
 def extrair_texto(file):
     if file.type == "application/pdf":
-        texto = ""
-        with fitz.open(stream=file.read(), filetype="pdf") as doc:
-            for page in doc:
-                texto += page.get_text()
-        return texto
+        try:
+            texto = ""
+            with fitz.open(stream=file.read(), filetype="pdf") as doc:
+                for page in doc:
+                    texto += page.get_text().strip()
+            if not texto.strip():
+                raise ValueError("PDF sem texto extraível")
+            return texto
+        except:
+            # Tenta via imagem se o PDF não tem texto
+            file.seek(0)
+            images = fitz.open("pdf", file.read())
+            texto = ""
+            for page in images:
+                pix = page.get_pixmap(dpi=300)
+                img = Image.open(io.BytesIO(pix.tobytes("png")))
+                texto += pytesseract.image_to_string(img, lang="por")
+            return texto
     else:
         image = Image.open(file).convert("L")
         return pytesseract.image_to_string(image, lang="por")

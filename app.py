@@ -53,6 +53,18 @@ def analisar(texto):
 
 def simular(resultado):
     consumos = list(resultado["consumos"].values())
+
+    if not consumos:
+        return {
+            "media": 0,
+            "pico": 0,
+            "minimo": 0,
+            "sazonalidade": 0,
+            "kwp": 0,
+            "economia": 0,
+            "payback": 0
+        }
+
     media = sum(consumos) / len(consumos)
     pico = max(consumos)
     minimo = min(consumos)
@@ -66,7 +78,7 @@ def simular(resultado):
 
     kwp = round(media / irradiancia, 1)
     economia = round(media * 0.85, 2)
-    payback = round((kwp * 1300) / economia, 1)
+    payback = round((kwp * 1300) / economia, 1) if economia > 0 else 0
 
     return {
         "media": media,

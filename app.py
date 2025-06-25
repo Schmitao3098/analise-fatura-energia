@@ -111,21 +111,34 @@ def calcular_economia(consumo_mensal):
 
 def gerar_sugestoes(resultado):
     sugestoes = []
-    media = resultado["media"]
+    media = resultado.get("media", 0)
+    pico = resultado.get("pico", 0)
+    minimo = resultado.get("minimo", 0)
+    sazonalidade = resultado.get("sazonalidade", 0)
+    grupo = resultado.get("grupo", "")
+
     if not media:
         return ["⚠️ Dados insuficientes para sugestão."]
+
     if media < 1500:
         sugestoes.append("🔍 Consumo baixo: sistema solar pode não compensar.")
     elif media < 4000:
         sugestoes.append("🟡 Perfil intermediário: avaliar on-grid com atenção ao consumo diurno.")
     else:
         sugestoes.append("✅ Excelente perfil para energia solar fotovoltaica.")
-    if resultado["grupo"] == "Grupo B":
+
+    if grupo == "Grupo B":
         sugestoes.append("⚡ Grupo B: zero grid pode compensar se o consumo for majoritariamente diurno.")
-    elif resultado["grupo"] == "Grupo A":
+        if media > 2000 and pico / media > 1.5:
+            sugestoes.append("🔒 Considere uso de Grid-Zero para evitar injeção indevida na rede.")
+    elif grupo == "Grupo A":
         sugestoes.append("📈 Grupo A: atenção à demanda e horário ponta/fora de ponta.")
-    if resultado["sazonalidade"] and resultado["sazonalidade"] > 4000:
+        if sazonalidade > 4000:
+            sugestoes.append("🔋 Considere sistema BESS para reduzir picos e economizar demanda contratada.")
+
+    if sazonalidade and sazonalidade > 4000:
         sugestoes.append("📉 Consumo muito variável: baterias (BESS) podem ajudar a equilibrar.")
+
     return sugestoes
 
 # === Geração do Gráfico ===

@@ -178,11 +178,9 @@ def gerar_pdf(r,buf):
     data=open(path,"rb").read(); os.remove(path)
     return data
 
-if uploaded_file:
+if uploaded_files:
+    uploaded_file = uploaded_files[0]  # pega o primeiro arquivo da lista
     texto = extrair_texto(uploaded_file)
-    st.subheader("🪪 Texto Extraído (Debug)")
-    st.code(texto, language="text")
-
     d = analisar(texto)
     s = simular(d)
     d.update(s)

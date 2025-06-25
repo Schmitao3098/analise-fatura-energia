@@ -160,6 +160,8 @@ def gerar_pdf(resumo, grafico_buffer):
 # === EXECUÇÃO ===
 if uploaded_file:
     texto = extrair_texto(uploaded_file)
+    st.subheader("🪪 Texto Extraído (Debug)")
+    st.code(texto, language="text")
     dados = analisar(texto)
     resumo = simular(dados)
     dados.update(resumo)

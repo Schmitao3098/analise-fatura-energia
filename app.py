@@ -40,12 +40,25 @@ def extrair_texto(file):
 
 def extrair_historico(texto):
     historico = {}
-    padrao_meses = re.findall(r'\b(?:JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\d{2}\b', texto.upper())
-    padrao_valores = re.findall(r'\b\d{3,5}\b', texto)
+    # Localiza a seção do histórico de consumo
+    match = re.search(r"HIST[ÓO]RICO DE CONSUMO.*?MAI24.*?\n([\s\S]*?)\n\d{10}", texto, re.IGNORECASE)
+    if not match:
+        return historico  # não encontrou bloco
 
-    if len(padrao_meses) == 12 and len(padrao_valores) >= 12:
-        for i in range(12):
-            historico[padrao_meses[i]] = int(padrao_valores[i])
+    bloco = match.group(1)
+    linhas = bloco.strip().splitlines()
+
+    # Mês do mais recente ao mais antigo (inverso da ordem)
+    meses = ["MAI24", "JUN24", "JUL24", "AGO24", "SET24", "OUT24", "NOV24", "DEZ24", "JAN25", "FEV25", "MAR25", "ABR25", "MAI25"]
+    valores = []
+
+    for linha in linhas:
+        valores.extend(re.findall(r"\d+", linha))
+
+    # Pegamos apenas os 13 primeiros valores (kWh)
+    for i, mes in enumerate(meses):
+        if i < len(valores):
+            historico[mes] = int(valores[i])
     return historico
 
 def analisar(texto):

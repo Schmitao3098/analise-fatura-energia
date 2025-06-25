@@ -92,17 +92,17 @@ def simular(resultado):
 
 def gerar_sugestoes(res):
     sugestoes = []
-    if res["media"] < 1500:
+    if res.get("media", 0) < 1500:
         sugestoes.append("🔍 Consumo baixo: sistema solar pode não compensar.")
     else:
         sugestoes.append("✅ Bom perfil para energia solar.")
 
-    if res["grupo"] == "Grupo B":
+    if res.get("grupo") == "Grupo B":
         sugestoes.append("⚡ Grupo B: zero grid pode compensar se o consumo for diurno.")
     else:
         sugestoes.append("⚠️ Grupo A: atenção à demanda e horários de ponta.")
 
-    if res["sazonalidade"] > 4000:
+    if res.get("sazonalidade", 0) > 4000:
         sugestoes.append("📉 Sazonalidade alta: baterias (BESS) podem ajudar.")
 
     return sugestoes

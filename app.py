@@ -24,7 +24,7 @@ def analisar_fatura(texto):
     else:
         analise["grupo"] = "Não identificado"
 
-    match_consumo = re.search(r"MAI25\s+(\d{4,6})", texto)
+    match_consumo = re.search(r"MAI(?:25)?\D+(\d{4,6})", texto)
     if match_consumo:
         analise["consumo_maio"] = int(match_consumo.group(1))
     else:

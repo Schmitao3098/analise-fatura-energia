@@ -156,73 +156,6 @@ def gerar_grafico(consumos):
     buf.seek(0)
     return buf
 
-# === Geração do PDF ===
-
-from fpdf import FPDF
-import matplotlib.pyplot as plt
-import pandas as pd
-import io
-import os
-
-def gerar_pdf_completo(arquivo_nome, resultado):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(200, 10, "Relatório Solar - Análise de Fatura", ln=True, align="C")
-
-    pdf.set_font("Arial", "", 12)
-    pdf.ln(5)
-    pdf.cell(200, 10, f"Grupo: {resultado['grupo']} | Cidade: {resultado['cidade']} - {resultado['estado']}", ln=True)
-    pdf.cell(200, 10, f"Valor Total: R$ {resultado['valor_total']}", ln=True)
-
-    if resultado["consumos"]:
-        pdf.cell(200, 10, f"Consumo Médio: {round(resultado['media'], 2)} kWh | Pico: {resultado['pico']} | Mínimo: {resultado['minimo']}", ln=True)
-        pdf.cell(200, 10, f"Sazonalidade: {resultado['sazonalidade']} kWh", ln=True)
-
-        kwp = calcular_kwp(resultado["media"], resultado["cidade"], resultado["estado"])
-        economia = calcular_economia(resultado["media"])
-        pdf.cell(200, 10, f"Sistema Estimado: {kwp} kWp | Economia: R$ {economia}/mês", ln=True)
-
-        # Gera o gráfico
-        df = pd.DataFrame(list(resultado["consumos"].items()), columns=["Mês", "kWh"])
-        fig, ax = plt.subplots(figsize=(6, 3))
-        ax.bar(df["Mês"], df["kWh"], color='orange')
-        ax.set_title("Histórico de Consumo (kWh)")
-        ax.set_ylabel("kWh")
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        plt.close(fig)
-        buf.seek(0)
-        img_path = "grafico_temp.png"
-        with open(img_path, "wb") as f:
-            f.write(buf.read())
-        pdf.image(img_path, x=10, y=None, w=180)
-        os.remove(img_path)
-
-    pdf.ln(5)
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(200, 10, "Sugestões Estratégicas:", ln=True)
-    pdf.set_font("Arial", "", 11)
-    for s in gerar_sugestoes(resultado):
-        pdf.multi_cell(0, 8, f"- {s}", align='L')
-
-    # Adiciona referência aos materiais da Chint
-    pdf.ln(3)
-    pdf.set_font("Arial", "I", 10)
-    pdf.multi_cell(0, 6, "📎 Materiais de apoio: GRID-ZERO e BESS Chint Power disponíveis para consulta no sistema.")
-
-    # Exporta PDF
-    output_path = f"relatorio_{arquivo_nome}.pdf"
-    pdf.output(output_path)
-    with open(output_path, "rb") as f:
-        pdf_bytes = f.read()
-    os.remove(output_path)
-
-    return pdf_bytes
-
 # === Execução Principal ===
 
 if uploaded_files:
@@ -259,5 +192,11 @@ if uploaded_files:
             for s in gerar_sugestoes(resultado):
                 st.markdown(f"- {s}")
 
+            # Gerar e disponibilizar PDF
             pdf_bytes = gerar_pdf_completo(arquivo.name.replace(".pdf", ""), resultado)
-st.download_button("📥 Baixar Relatório em PDF", data=pdf_bytes, file_name="relatorio_solar.pdf")
+            st.download_button(
+                label="📥 Baixar Relatório em PDF",
+                data=pdf_bytes,
+                file_name=f"relatorio_{arquivo.name.replace('.pdf', '')}.pdf",
+                mime="application/pdf"
+            )

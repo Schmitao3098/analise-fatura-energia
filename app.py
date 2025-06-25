@@ -1,11 +1,11 @@
 import streamlit as st
-import fitz  # PyMuPDF
+import fitz
 from PIL import Image
 import pytesseract
 import re
 import io
-import matplotlib.pyplot as plt
 import pandas as pd
+import matplotlib.pyplot as plt
 from fpdf import FPDF
 import os
 
@@ -19,182 +19,110 @@ def extrair_texto(file):
         try:
             texto = ""
             with fitz.open(stream=file.read(), filetype="pdf") as doc:
-                for page in doc:
-                    texto += page.get_text().strip()
-            if not texto.strip():
-                raise ValueError("PDF sem texto extraível")
+                for page in doc: texto += page.get_text().strip() + "\n"
+            if not texto.strip(): raise ValueError
             return texto
         except:
-            # Tenta via imagem se o PDF não tem texto
             file.seek(0)
-            images = fitz.open("pdf", file.read())
+            doc = fitz.open("pdf", file.read())
             texto = ""
-            for page in images:
+            for page in doc:
                 pix = page.get_pixmap(dpi=300)
                 img = Image.open(io.BytesIO(pix.tobytes("png")))
-                texto += pytesseract.image_to_string(img, lang="por")
+                texto += pytesseract.image_to_string(img, lang="por") + "\n"
             return texto
     else:
-        image = Image.open(file).convert("L")
-        return pytesseract.image_to_string(image, lang="por")
+        img = Image.open(file).convert("L")
+        return pytesseract.image_to_string(img, lang="por")
 
 def extrair_historico(texto):
     historico = {}
-    # Localiza a seção do histórico de consumo
-    match = re.search(r"HIST[ÓO]RICO DE CONSUMO.*?MAI24.*?\n([\s\S]*?)\n\d{10}", texto, re.IGNORECASE)
-    if not match:
-        return historico  # não encontrou bloco
-
-    bloco = match.group(1)
-    linhas = bloco.strip().splitlines()
-
-    # Mês do mais recente ao mais antigo (inverso da ordem)
-    meses = ["MAI24", "JUN24", "JUL24", "AGO24", "SET24", "OUT24", "NOV24", "DEZ24", "JAN25", "FEV25", "MAR25", "ABR25", "MAI25"]
-    valores = []
-
-    for linha in linhas:
-        valores.extend(re.findall(r"\d+", linha))
-
-    # Pegamos apenas os 13 primeiros valores (kWh)
-    for i, mes in enumerate(meses):
-        if i < len(valores):
+    # Captura os valores logo após os 12 meses, na ordem certa
+    meses = ["MAI25","ABR25","MAR25","FEV25","JAN25","DEZ24","NOV24","OUT24","SET24","AGO24","JUL24","JUN24","MAI24"]
+    valores = re.findall(r"\b(\d{3,5})\b", texto)
+    if len(valores) >= 13:
+        for i, mes in enumerate(meses):
             historico[mes] = int(valores[i])
     return historico
 
 def analisar(texto):
-    resultado = {}
-    resultado["grupo"] = "Grupo B" if "Modalidade Tarifaria: B" in texto else "Grupo A" if "Grupo A" in texto else "Não identificado"
+    r = {}
+    r["grupo"] = "Grupo B" if "Modalidade Tarifaria: B" in texto else "Grupo A" if "Grupo A" in texto else "Não identificado"
+    m = re.search(r"R\$\s*([\d\.,]+)", texto)
+    r["valor_total"] = m.group(1) if m else "Desconhecido"
+    m2 = re.search(r"Cidade:\s*(.*?)\s*-\s*Estado:\s*([A-Z]{2})", texto)
+    r["cidade"], r["estado"] = (m2.group(1).strip(), m2.group(2).strip()) if m2 else ("Toledo","PR")
+    r["consumos"] = extrair_historico(texto)
+    return r
 
-    match_total = re.search(r"R\$\s*([\d\.,]+)", texto)
-    resultado["valor_total"] = match_total.group(1) if match_total else "Desconhecido"
+def simular(r):
+    c = list(r["consumos"].values())
+    if not c: return dict(media=0,pico=0,minimo=0,sazonalidade=0,kwp=0,economia=0,payback=0)
+    media, pico, minimo = sum(c)/len(c), max(c), min(c)
+    saz = pico-minimo
+    irrad = {"Toledo - PR":140,"Curitiba - PR":115,"Campo Grande - MS":150}.get(f"{r['cidade']} - {r['estado']}",120)
+    kwp = round(media/irrad,1); econ = round(media*0.85,2)
+    pb = round((kwp*1300)/econ,1) if econ>0 else 0
+    return dict(media=media,pico=pico,minimo=minimo,sazonalidade=saz,kwp=kwp,economia=econ,payback=pb)
 
-    match_cidade = re.search(r"Cidade:\s+([A-Za-z\s]+)\s+-\s+Estado:\s+([A-Z]{2})", texto)
-    resultado["cidade"] = match_cidade.group(1).strip() if match_cidade else "Toledo"
-    resultado["estado"] = match_cidade.group(2).strip() if match_cidade else "PR"
-
-    resultado["consumos"] = extrair_historico(texto)
-    return resultado
-
-def simular(resultado):
-    consumos = list(resultado.get("consumos", {}).values())
-    if not consumos:
-        return {"media": 0, "pico": 0, "minimo": 0, "sazonalidade": 0, "kwp": 0, "economia": 0, "payback": 0}
-
-    media = sum(consumos) / len(consumos)
-    pico = max(consumos)
-    minimo = min(consumos)
-    sazonalidade = pico - minimo
-
-    irradiancia = {
-        "Toledo - PR": 140,
-        "Curitiba - PR": 115,
-        "Campo Grande - MS": 150
-    }.get(f"{resultado['cidade']} - {resultado['estado']}", 120)
-
-    kwp = round(media / irradiancia, 1)
-    economia = round(media * 0.85, 2)
-    payback = round((kwp * 1300) / economia, 1) if economia > 0 else 0
-
-    return {"media": media, "pico": pico, "minimo": minimo, "sazonalidade": sazonalidade, "kwp": kwp, "economia": economia, "payback": payback}
-
-def gerar_sugestoes(res):
-    sugestoes = []
-    if res.get("media", 0) < 1500:
-        sugestoes.append("🔍 Consumo baixo: sistema solar pode não compensar.")
-    else:
-        sugestoes.append("✅ Bom perfil para energia solar.")
-
-    if res.get("grupo") == "Grupo B":
-        sugestoes.append("⚡ Grupo B: zero grid pode compensar se o consumo for diurno.")
-    elif res.get("grupo") == "Grupo A":
-        sugestoes.append("⚠️ Grupo A: atenção à demanda e horários de ponta.")
-
-    if res.get("sazonalidade", 0) > 4000:
-        sugestoes.append("📉 Sazonalidade alta: baterias (BESS) podem ajudar.")
-    return sugestoes
+def gerar_sugestoes(r):
+    s=[]
+    if r["media"]<1500: s.append("🔍 Consumo baixo")
+    else: s.append("✅ Bom perfil solar")
+    if r["grupo"]=="Grupo B": s.append("⚡ Grupo B: zero‑grid compensa")
+    else: s.append("⚠️ Grupo A: atenção à demanda/ponta")
+    if r["sazonalidade"]>4000: s.append("📉 Alta sazonalidade: considere BESS")
+    return s
 
 def gerar_grafico(consumos):
-    if not consumos:
-        return None
-    df = pd.DataFrame(list(consumos.items()), columns=["Mês", "kWh"])
-    fig, ax = plt.subplots(figsize=(8,4))
-    ax.bar(df["Mês"], df["kWh"], color='goldenrod')
-    ax.set_title("Histórico de Consumo (kWh)")
-    ax.set_ylabel("Consumo (kWh)")
-    plt.xticks(rotation=45)
-    buf = io.BytesIO()
-    plt.tight_layout()
-    plt.savefig(buf, format="png")
-    buf.seek(0)
+    if not consumos: return None
+    df = pd.DataFrame(list(consumos.items()), columns=["Mês","kWh"])
+    fig,ax = plt.subplots(figsize=(8,4))
+    ax.bar(df["Mês"],df["kWh"],color='goldenrod')
+    ax.set_title("Histórico (kWh)")
+    plt.xticks(rotation=45); buf=io.BytesIO()
+    plt.tight_layout(); plt.savefig(buf,format="png"); buf.seek(0)
     return buf
 
-def gerar_pdf(resumo, grafico_buffer):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, "Relatório Solar - Análise de Fatura", ln=True)
-    pdf.cell(200, 10, f"Grupo: {resumo.get('grupo', '-')}", ln=True)
-    pdf.cell(200, 10, f"Média: {resumo.get('media', 0)} kWh | Sistema: {resumo.get('kwp', 0)} kWp", ln=True)
-    pdf.cell(200, 10, f"Economia: R$ {resumo.get('economia', 0)} | Payback: {resumo.get('payback', 0)} anos", ln=True)
+def gerar_pdf(r,buf):
+    pdf=FPDF(); pdf.add_page(); pdf.set_font("Arial",size=12)
+    pdf.cell(200,10,"Relatório Solar",ln=1)
+    pdf.cell(200,8,f"Grupo: {r['grupo']}  Total: R$ {r['valor_total']}",ln=1)
+    pdf.cell(200,8,f"Média {r['media']:.1f} | Sistema {r['kwp']} kWp | Economia R$ {r['economia']}/mês | Payback {r['payback']} anos",ln=1)
+    if buf:
+        imgf="graf.png"
+        with open(imgf,"wb") as f: f.write(buf.read())
+        pdf.image(imgf,x=10,y=50,w=180); os.remove(imgf)
+    path="rel_temp.pdf"; pdf.output(path)
+    data=open(path,"rb").read(); os.remove(path)
+    return data
 
-    img_path = "grafico_temp.png"
-    if grafico_buffer:
-        with open(img_path, "wb") as f:
-            f.write(grafico_buffer.read())
-        pdf.image(img_path, x=10, y=60, w=180)
-        os.remove(img_path)
-
-    # Corrigido: salvar em um arquivo temporário, depois ler
-    output_path = "relatorio_temp.pdf"
-    pdf.output(output_path)
-    with open(output_path, "rb") as f:
-        pdf_bytes = f.read()
-    os.remove(output_path)
-    return pdf_bytes
-
-    if grafico_buffer:
-        img_path = "grafico_temp.png"
-        with open(img_path, "wb") as f:
-            f.write(grafico_buffer.read())
-        pdf.image(img_path, x=10, y=60, w=180)
-        os.remove(img_path)
-
-    pdf_output = io.BytesIO()
-    pdf.output(pdf_output)
-    pdf_output.seek(0)
-    return pdf_output
-
-# === EXECUÇÃO ===
 if uploaded_file:
     texto = extrair_texto(uploaded_file)
     st.subheader("🪪 Texto Extraído (Debug)")
     st.code(texto, language="text")
-    dados = analisar(texto)
-    resumo = simular(dados)
-    dados.update(resumo)
 
-    st.subheader("📊 Diagnóstico da Fatura")
-    st.write(f"**Grupo Tarifário:** {dados['grupo']}")
-    st.write(f"**Valor Total:** R$ {dados['valor_total']}")
-    st.write(f"📍 Localização: {dados['cidade']} - {dados['estado']}")
+    d = analisar(texto)
+    s = simular(d)
+    d.update(s)
 
-    st.subheader("📈 Histórico de Consumo (12 meses):")
-    st.write(dados["consumos"])
-    st.write(f"🔹 **Média:** {resumo['media']} | 🔺 Pico: {resumo['pico']} | 🔻 Mínimo: {resumo['minimo']}")
-    st.write(f"📉 Sazonalidade: {resumo['sazonalidade']} kWh")
+    st.subheader("📊 Fatura")
+    st.write(f"**Grupo:** {d['grupo']}  •  **Total:** R$ {d['valor_total']}")
+    st.write(f"📍 {d['cidade']} - {d['estado']}")
 
-    st.subheader("🔆 Simulação Solar")
-    st.write(f"🔋 Sistema estimado: **{resumo['kwp']} kWp**")
-    st.write(f"💰 Economia estimada: **R$ {resumo['economia']}/mês**")
-    st.write(f"📅 Payback estimado: **{resumo['payback']} anos**")
+    st.subheader("📈 Histórico 12 meses")
+    st.json(d["consumos"])
+    st.write(f"Média {s['media']:.1f} • Pico {s['pico']} • Mínimo {s['minimo']}")
+    st.write(f"Sazonalidade: {s['sazonalidade']} kWh")
 
-    st.subheader("💡 Estratégias Sugeridas")
-    for s in gerar_sugestoes(dados):
-        st.markdown(f"- {s}")
+    st.subheader("🔆 Simulação")
+    st.write(f"Sistema ~**{s['kwp']} kWp**, economia ~**R$ {s['economia']}/mês**, payback **{s['payback']} anos**")
 
-    grafico = gerar_grafico(dados["consumos"])
-    if grafico:
-        st.image(grafico)
+    st.subheader("💡 Sugestões")
+    for x in gerar_sugestoes(s): st.markdown(f"- {x}")
 
-    pdf_download = gerar_pdf(dados, grafico)
-    st.download_button("📥 Baixar Relatório em PDF", data=pdf_download, file_name="relatorio_solar.pdf")
+    gbuf = gerar_grafico(d["consumos"])
+    if gbuf: st.image(gbuf)
+
+    pdf_data = gerar_pdf(d, gbuf)
+    st.download_button("📥 Relatório PDF", data=pdf_data, file_name="rel_solar.pdf")

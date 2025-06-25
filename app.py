@@ -14,18 +14,26 @@ def extrair_texto(pdf):
     return texto
 
 def extrair_historico_blocos(texto):
-    # Padrão: mês em uma linha, valor na próxima
     linhas = texto.splitlines()
-    meses = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ']
+    meses = []
+    valores = []
+
+    # 1. Pegar todos os meses tipo MAI25, ABR25 etc.
+    for linha in linhas:
+        if re.match(r"^(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\d{2}$", linha.strip()):
+            meses.append(linha.strip())
+
+    # 2. Pegar todos os valores numéricos significativos (com 3 ou mais dígitos)
+    for linha in linhas:
+        numeros = re.findall(r"\b\d{3,6}\b", linha)
+        for n in numeros:
+            valores.append(int(n))
+
+    # 3. Combinar os 13 primeiros meses com os 13 primeiros valores
     historico = {}
-    for i, linha in enumerate(linhas):
-        for mes in meses:
-            if mes in linha:
-                try:
-                    valor = int(re.sub(r"\D", "", linhas[i+1]))  # próxima linha, somente números
-                    historico[mes] = valor
-                except:
-                    continue
+    for i in range(min(len(meses), len(valores))):
+        historico[meses[i]] = valores[i]
+
     return historico
 
 def analisar_fatura(texto):

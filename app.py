@@ -111,34 +111,21 @@ def calcular_economia(consumo_mensal):
 
 def gerar_sugestoes(resultado):
     sugestoes = []
-    media = resultado.get("media", 0)
-    pico = resultado.get("pico", 0)
-    minimo = resultado.get("minimo", 0)
-    sazonalidade = resultado.get("sazonalidade", 0)
-    grupo = resultado.get("grupo", "")
-
+    media = resultado["media"]
     if not media:
         return ["⚠️ Dados insuficientes para sugestão."]
-
     if media < 1500:
         sugestoes.append("🔍 Consumo baixo: sistema solar pode não compensar.")
     elif media < 4000:
         sugestoes.append("🟡 Perfil intermediário: avaliar on-grid com atenção ao consumo diurno.")
     else:
         sugestoes.append("✅ Excelente perfil para energia solar fotovoltaica.")
-
-    if grupo == "Grupo B":
+    if resultado["grupo"] == "Grupo B":
         sugestoes.append("⚡ Grupo B: zero grid pode compensar se o consumo for majoritariamente diurno.")
-        if media > 2000 and pico / media > 1.5:
-            sugestoes.append("🔒 Considere uso de Grid-Zero para evitar injeção indevida na rede.")
-    elif grupo == "Grupo A":
+    elif resultado["grupo"] == "Grupo A":
         sugestoes.append("📈 Grupo A: atenção à demanda e horário ponta/fora de ponta.")
-        if sazonalidade > 4000:
-            sugestoes.append("🔋 Considere sistema BESS para reduzir picos e economizar demanda contratada.")
-
-    if sazonalidade and sazonalidade > 4000:
+    if resultado["sazonalidade"] and resultado["sazonalidade"] > 4000:
         sugestoes.append("📉 Consumo muito variável: baterias (BESS) podem ajudar a equilibrar.")
-        
     return sugestoes
 
 # === Geração do Gráfico ===
@@ -157,71 +144,64 @@ def gerar_grafico(consumos):
     return buf
 
 # === Geração do PDF ===
-from fpdf import FPDF
-import matplotlib.pyplot as plt
-import pandas as pd
-import io
-import os
-import unicodedata
 
-def remover_caracteres_invalidos(texto):
-    return unicodedata.normalize('NFKD', texto).encode('latin-1', 'ignore').decode('latin-1')
-
-def gerar_pdf_completo(arquivo_nome, resultado):
+def gerar_pdf(resultado, grafico_buffer):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 14)
-    pdf.cell(200, 10, "Relatorio Solar - Analise de Fatura", ln=True, align="C")
-
+    pdf.cell(200, 10, "Relatório Solar - Análise de Fatura", ln=True, align="C")
     pdf.set_font("Arial", "", 12)
-    pdf.ln(5)
-    pdf.cell(200, 10, remover_caracteres_invalidos(f"Grupo: {resultado['grupo']} | Cidade: {resultado['cidade']} - {resultado['estado']}"), ln=True)
-    pdf.cell(200, 10, f"Valor Total: R$ {resultado['valor_total']}", ln=True)
+    pdf.cell(200, 10, f"Grupo: {resultado['grupo']} | Cidade: {resultado['cidade']} - {resultado['estado']}", ln=True)
+    pdf.cell(200, 10, f"Consumo Médio: {round(resultado['media'],2)} kWh", ln=True)
+    pdf.cell(200, 10, f"Sistema Estimado: {resultado['kwp']} kWp | Economia: R$ {resultado['economia']}/mês", ln=True)
 
-    if resultado["consumos"]:
-        pdf.cell(200, 10, f"Consumo Medio: {round(resultado['media'], 2)} kWh | Pico: {resultado['pico']} | Minimo: {resultado['minimo']}", ln=True)
-        pdf.cell(200, 10, f"Sazonalidade: {resultado['sazonalidade']} kWh", ln=True)
-
-        kwp = calcular_kwp(resultado["media"], resultado["cidade"], resultado["estado"])
-        economia = calcular_economia(resultado["media"])
-        pdf.cell(200, 10, f"Sistema Estimado: {kwp} kWp | Economia: R$ {economia}/mes", ln=True)
-
-        # Gera gráfico
-        df = pd.DataFrame(list(resultado["consumos"].items()), columns=["Mes", "kWh"])
-        fig, ax = plt.subplots(figsize=(6, 3))
-        ax.bar(df["Mes"], df["kWh"], color='orange')
-        ax.set_title("Historico de Consumo (kWh)")
-        ax.set_ylabel("kWh")
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        plt.close(fig)
-        buf.seek(0)
+    if grafico_buffer:
         img_path = "grafico_temp.png"
         with open(img_path, "wb") as f:
-            f.write(buf.read())
-        pdf.image(img_path, x=10, y=None, w=180)
+            f.write(grafico_buffer.read())
+        pdf.image(img_path, x=10, y=60, w=180)
         os.remove(img_path)
 
-    pdf.ln(5)
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(200, 10, "Sugestoes Estrategicas:", ln=True)
-    pdf.set_font("Arial", "", 11)
-    for s in gerar_sugestoes(resultado):
-        texto_limpo = remover_caracteres_invalidos(s)
-        pdf.multi_cell(0, 8, f"- {texto_limpo}", align='L')
-
-    pdf.ln(3)
-    pdf.set_font("Arial", "I", 10)
-    pdf.multi_cell(0, 6, "Materiais de apoio: GRID-ZERO e BESS Chint Power disponiveis para consulta no sistema.")
-
-    # Exporta PDF
-    output_path = f"relatorio_{arquivo_nome}.pdf"
+    output_path = "relatorio_solar.pdf"
     pdf.output(output_path)
     with open(output_path, "rb") as f:
-        pdf_bytes = f.read()
-    os.remove(output_path)
+        return f.read()
 
-    return pdf_bytes
+# === Execução Principal ===
+
+if uploaded_files:
+    for arquivo in uploaded_files:
+        st.markdown("---")
+        st.subheader(f"📄 Análise: {arquivo.name}")
+
+        tipo = arquivo.type
+        texto = extrair_texto_pdf(arquivo) if "pdf" in tipo else extrair_texto_imagem(arquivo)
+        resultado = analisar_texto(texto)
+
+        st.write(f"**Grupo Tarifário:** {resultado['grupo']}")
+        st.write(f"**Valor Total da Fatura:** R$ {resultado['valor_total']}")
+        st.write(f"📍 Localização: {resultado['cidade']} - {resultado['estado']}")
+
+        if resultado["consumos"]:
+            st.write("**Histórico de Consumo:**")
+            st.json(resultado["consumos"], expanded=False)
+            st.write(f"📊 Média: {round(resultado['media'], 2)} kWh | Pico: {resultado['pico']} | Mínimo: {resultado['minimo']}")
+            st.write(f"📈 Sazonalidade: {resultado['sazonalidade']} kWh")
+
+            resultado["kwp"] = calcular_kwp(resultado["media"], resultado["cidade"], resultado["estado"])
+            resultado["economia"] = calcular_economia(resultado["media"])
+
+            st.subheader("🔆 Simulação Solar")
+            st.write(f"🔋 Sistema estimado: **{resultado['kwp']} kWp**")
+            st.write(f"💰 Economia estimada: **R$ {resultado['economia']}/mês**")
+
+            st.subheader("📉 Gráfico de Consumo")
+            grafico_buf = gerar_grafico(resultado["consumos"])
+            st.image(grafico_buf)
+
+            st.subheader("💡 Sugestões Estratégicas:")
+            for s in gerar_sugestoes(resultado):
+                st.markdown(f"- {s}")
+
+            pdf_bytes = gerar_pdf(resultado, grafico_buf)
+            st.download_button("📥 Baixar Relatório em PDF", data=pdf_bytes, file_name="relatorio_solar.pdf", mime="application/pdf")

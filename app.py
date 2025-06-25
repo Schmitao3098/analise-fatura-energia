@@ -1,136 +1,113 @@
 import streamlit as st
 import fitz  # PyMuPDF
+import pytesseract
+from PIL import Image
+import io
 import re
-import pandas as pd
 
-st.set_page_config(page_title="Analisador de Faturas Copel", layout="centered")
-st.title("📊 Analisador de Faturas Copel - Grupo A & B")
+st.set_page_config(page_title="Analisador de Fatura Copel", layout="wide")
+st.title("📄 Diagnóstico da Fatura (Não identificado)")
 
-uploaded_file = st.file_uploader("📤 Envie a fatura em PDF", type=["pdf"])
+uploaded_file = st.file_uploader("Envie a fatura (PDF ou imagem)", type=["pdf", "png", "jpg", "jpeg"])
 
-# === Funções ===
+def extract_text_from_pdf(file):
+    text = ""
+    doc = fitz.open(stream=file.read(), filetype="pdf")
+    for page in doc:
+        text += page.get_text()
+    return text
 
-def extrair_texto_pdf(uploaded_file):
-    texto = ""
-    with fitz.open(stream=uploaded_file.read(), filetype="pdf") as doc:
-        for page in doc:
-            texto += page.get_text()
-    return texto
+def extract_consumo_mensal(text):
+    padrao = r"(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)[0-9]{2}"
+    valores = re.findall(rf"({padrao})\D+?(\d+)", text)
+    return {mes: int(kwh) for mes, kwh in valores}
 
-def extrair_historico_consumo(texto):
-    linhas = texto.splitlines()
-    historico = []
-    capturar = False
-    for linha in linhas:
-        if "HISTÓRICO DE CONSUMO" in linha.upper():
-            capturar = True
-            continue
-        if capturar:
-            if linha.strip() == "":
-                break
-            historico.append(linha.strip())
+def extrair_grupo_tarifario(text):
+    if "Grupo A" in text or "GRUPO A" in text:
+        return "Grupo A"
+    elif "Grupo B" in text or "GRUPO B" in text or "B - CONVENCIONAL" in text:
+        return "Grupo B"
+    return "Não identificado"
 
-    meses = historico[2:15]
-    consumos = historico[15:28]
-    dados = {}
-    for i in range(min(len(meses), len(consumos))):
-        try:
-            dados[meses[i]] = int(re.sub(r"[^\d]", "", consumos[i]))
-        except:
-            continue
-    return dados
+def extrair_endereco(text):
+    match = re.search(r"Cidade:\s*(.+?)\s*-\s*Estado:\s*([A-Z]{2})", text)
+    return f"{match.group(1)} - {match.group(2)}" if match else "Localização não encontrada"
 
-def simular_sistema(consumo_medio, hsp=4.5):
-    kwp = round(consumo_medio / (hsp * 30), 1)
-    economia = round(consumo_medio * 0.85 * 0.3, 2)
+def detectar_demanda(text):
+    demanda = {}
+    if "Demanda Contratada" in text:
+        demanda["contratada"] = True
+    if "Fora Ponta" in text or "fora ponta" in text:
+        demanda["fora_ponta"] = True
+    if "Ponta" in text:
+        demanda["ponta"] = True
+    return demanda if demanda else None
+
+def simular_solar(media_kwh, irradiacao=4.2):
+    kwp = round(media_kwh / (30 * irradiacao), 1)
+    economia = round(media_kwh * 0.745, 2)
     return kwp, economia
 
-def extrair_dados_grupo_a(texto):
-    dados = {
-        "demanda_contratada_kw": None,
-        "demanda_ponta_kw": None,
-        "demanda_fora_ponta_kw": None,
-        "consumo_ponta_kwh": None,
-        "consumo_fora_ponta_kwh": None,
-        "bandeira_tarifaria": None,
-        "penalidade_excedente": None,
-        "fator_potencia_irregular": False,
-    }
-
-    padroes = {
-        "demanda_contratada_kw": r"demanda contratada[:\s]*([\d,.]+)\s?k[wW]",
-        "demanda_ponta_kw": r"demanda registrada.*ponta[:\s]*([\d,.]+)\s?k[wW]",
-        "demanda_fora_ponta_kw": r"demanda registrada.*fora.*ponta[:\s]*([\d,.]+)\s?k[wW]",
-        "consumo_ponta_kwh": r"consumo.*ponta[:\s]*([\d,.]+)\s?k[wW]h",
-        "consumo_fora_ponta_kwh": r"consumo.*fora.*ponta[:\s]*([\d,.]+)\s?k[wW]h",
-        "bandeira_tarifaria": r"bandeira tarifária[:\s]*([\w\s]+)",
-        "penalidade_excedente": r"excedente.*demanda.*[:\s]*R\$\s*([\d,.]+)",
-        "fator_potencia_irregular": r"fator de potência.*(abaixo|não conformidade|penalidade)"
-    }
-
-    for chave, padrao in padroes.items():
-        match = re.search(padrao, texto, re.IGNORECASE)
-        if match:
-            valor = match.group(1).replace(".", "").replace(",", ".")
-            if chave == "fator_potencia_irregular":
-                dados[chave] = True
-            elif chave == "bandeira_tarifaria":
-                dados[chave] = match.group(1).strip()
-            else:
-                try:
-                    dados[chave] = float(valor)
-                except:
-                    dados[chave] = None
-    return dados
-
-# === Execução Principal ===
+def sugerir_estrategias(grupo, media_kwh, sazonalidade, demanda):
+    sugestoes = []
+    if grupo == "Grupo B":
+        if media_kwh < 300:
+            sugestoes.append("⚠️ Consumo baixo: sistema solar pode não compensar.")
+        else:
+            sugestoes.append("✅ Bom perfil para energia solar fotovoltaica.")
+        sugestoes.append("⚡ Zero grid pode compensar se o consumo for diurno.")
+    elif grupo == "Grupo A":
+        if demanda:
+            sugestoes.append("🔌 Há demanda contratada: análise de ponta é essencial.")
+        if sazonalidade > (media_kwh * 0.5):
+            sugestoes.append("🔋 Consumo variável: considerar sistema híbrido ou BESS.")
+    if not sugestoes:
+        sugestoes.append("📌 Sem dados suficientes para sugerir estratégias.")
+    return sugestoes
 
 if uploaded_file:
-    texto = extrair_texto_pdf(uploaded_file)
-    historico = extrair_historico_consumo(texto)
-    grupo = "Grupo A" if "Grupo A" in texto else ("Grupo B" if "Grupo B" in texto else "Não identificado")
-    dados_grupo_a = extrair_dados_grupo_a(texto)
+    if uploaded_file.type == "application/pdf":
+        text = extract_text_from_pdf(uploaded_file)
+    else:
+        img = Image.open(uploaded_file)
+        text = pytesseract.image_to_string(img)
 
-    st.markdown(f"### 📄 Diagnóstico da Fatura ({grupo})")
+    grupo = extrair_grupo_tarifario(text)
+    endereco = extrair_endereco(text)
+    consumo = extract_consumo_mensal(text)
+    demanda = detectar_demanda(text)
 
-    if historico:
-        st.markdown("#### 📈 Histórico de Consumo (12 meses):")
-        df = pd.DataFrame(historico.items(), columns=["Mês", "kWh"]).set_index("Mês")
-        st.dataframe(df)
-        media = sum(historico.values()) / len(historico)
-        pico = max(historico.values())
-        minimo = min(historico.values())
+    st.subheader(f"📄 Análise: {uploaded_file.name}")
+    st.markdown(f"**Grupo Tarifário:** {grupo}")
+    st.markdown(f"**📍 Localização:** {endereco}")
+
+    if consumo:
+        valores = list(consumo.values())
+        media = sum(valores) / len(valores)
+        pico = max(valores)
+        minimo = min(valores)
         sazonalidade = pico - minimo
+        kwp, economia = simular_solar(media)
 
-        st.write(f"🔢 **Média:** {round(media,2)} kWh | 📈 Pico: {pico} | 📉 Mínimo: {minimo}")
-        st.write(f"🔁 **Sazonalidade:** {sazonalidade} kWh")
+        st.subheader("📊 Histórico de Consumo (12 meses):")
+        st.dataframe({"Mês": list(consumo.keys()), "kWh": list(consumo.values())})
 
-        kwp, economia = simular_sistema(media)
-        st.markdown("#### ☀️ Simulação Solar")
-        st.write(f"🔋 Sistema estimado: **{kwp} kWp**")
-        st.write(f"💰 Economia estimada: **R$ {economia}/mês**")
+        st.markdown(f"🔷 **Média:** {round(media, 2)} kWh | 🧾 **Pico:** {pico} | 💡 **Mínimo:** {minimo}")
+        st.markdown(f"🔵 **Sazonalidade:** {sazonalidade} kWh")
 
-    if any(v is not None for v in dados_grupo_a.values()):
-        st.markdown("#### ⚡ Diagnóstico Técnico Grupo A")
-        for chave, valor in dados_grupo_a.items():
-            if valor:
-                label = chave.replace("_", " ").capitalize()
-                if chave == "fator_potencia_irregular" and valor is True:
-                    st.error("⚠️ Fator de potência em não conformidade!")
-                elif "penalidade" in chave:
-                    st.warning(f"⚠️ Penalidade: R$ {valor}")
-                else:
-                    st.write(f"**{label}:** {valor}")
+        st.subheader("🌞 Simulação Solar")
+        st.markdown(f"🔋 Sistema estimado: **{kwp} kWp**")
+        st.markdown(f"💰 Economia estimada: **R$ {economia}/mês**")
 
-    st.markdown("#### 💡 Estratégias Sugeridas")
-    if grupo == "Grupo B":
-        if media < 1500:
-            st.write("- ⚠️ Consumo baixo: pode não justificar sistema solar.")
-        elif media > 4000:
-            st.write("- ✅ Perfil ideal para solar fotovoltaico.")
+        st.subheader(f"⚡ Diagnóstico Técnico {grupo}")
+        if demanda:
+            st.json(demanda)
         else:
-            st.write("- 🟡 Avaliar perfil com atenção: consumo médio.")
-        st.write("- ⚡ Avaliar zero grid se consumo for diurno.")
-    if grupo == "Grupo A":
-        st.write("- 📊 Avaliar demanda contratada vs registrada.")
-        st.write("- ⏰ Se alto consumo em ponta: sugerir reprogramação ou BESS.")
+            st.markdown("Sem informações específicas de demanda contratada.")
+
+        st.subheader("💡 Estratégias Sugeridas")
+        for sugestao in sugerir_estrategias(grupo, media, sazonalidade, demanda):
+            st.markdown(f"- {sugestao}")
+
+    else:
+        st.warning("⚠️ Não foi possível extrair o histórico de consumo da fatura.")

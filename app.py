@@ -139,13 +139,6 @@ def gerar_sugestoes(resultado):
     if sazonalidade and sazonalidade > 4000:
         sugestoes.append("📉 Consumo muito variável: baterias (BESS) podem ajudar a equilibrar.")
         
-        if resultado["grupo"] == "Grupo B":
-    sugestoes.append("⚡ Grupo B: zero grid pode compensar se o consumo for majoritariamente diurno.")
-    sugestoes.append("🔒 Considere uso de [Grid-Zero](https://example.com/grid-zero-chint.pdf) para evitar injeção indevida na rede.")
-
-if resultado["sazonalidade"] and resultado["sazonalidade"] > 4000:
-    sugestoes.append("📉 Consumo muito variável: [baterias BESS](https://example.com/bess-chint.pdf) podem ajudar a equilibrar.")
-
     return sugestoes
 
 # === Geração do Gráfico ===

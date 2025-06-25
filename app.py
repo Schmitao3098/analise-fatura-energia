@@ -116,6 +116,21 @@ def gerar_pdf(resumo, grafico_buffer):
     pdf.cell(200, 10, f"Média: {resumo.get('media', 0)} kWh | Sistema: {resumo.get('kwp', 0)} kWp", ln=True)
     pdf.cell(200, 10, f"Economia: R$ {resumo.get('economia', 0)} | Payback: {resumo.get('payback', 0)} anos", ln=True)
 
+    img_path = "grafico_temp.png"
+    if grafico_buffer:
+        with open(img_path, "wb") as f:
+            f.write(grafico_buffer.read())
+        pdf.image(img_path, x=10, y=60, w=180)
+        os.remove(img_path)
+
+    # Corrigido: salvar em um arquivo temporário, depois ler
+    output_path = "relatorio_temp.pdf"
+    pdf.output(output_path)
+    with open(output_path, "rb") as f:
+        pdf_bytes = f.read()
+    os.remove(output_path)
+    return pdf_bytes
+
     if grafico_buffer:
         img_path = "grafico_temp.png"
         with open(img_path, "wb") as f:

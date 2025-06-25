@@ -94,17 +94,34 @@ def analisar_texto(texto):
 
 # === Cálculos e Sugestões ===
 
-def calcular_kwp(consumo_mensal, cidade="Toledo", estado="PR"):
-    irradiancia_por_cidade = {
-        "Toledo - PR": 140,
-        "Curitiba - PR": 115,
-        "Campo Grande - MS": 150,
-        "São Paulo - SP": 125,
-        "Recife - PE": 130
+def calcular_kwp(consumo_mensal, estado="PR", regiao="Oeste"):
+    # Tabela de irradiância diária média por estado e região
+    irradiancia_por_estado = {
+        "SP": {
+            "Norte": 4.75, "Sul": 4.25, "Leste": 4.25, "Oeste": 4.75
+        },
+        "MS": {
+            "Norte": 5.25, "Sul": 4.75, "Leste": 4.75, "Oeste": 5.25
+        },
+        "SC": {
+            "Norte": 4.25, "Sul": 3.75, "Leste": 3.75, "Oeste": 4.25
+        },
+        "PR": {
+            "Norte": 4.75, "Sul": 3.75, "Leste": 3.75, "Oeste": 4.25
+        }
     }
-    chave = f"{cidade} - {estado}"
-    irradiancia = irradiancia_por_cidade.get(chave, 120)
-    return round(consumo_mensal / irradiancia, 1)
+
+    estado = estado.strip().upper()
+    regiao = regiao.strip().capitalize()
+
+    irradiancia = irradiancia_por_estado.get(estado, {}).get(regiao)
+
+    if not irradiancia:
+        irradiancia = 4.5  # valor médio nacional estimado como fallback
+
+    # Fórmula com 20% extra e 80% de eficiência
+    sistema_kwp = (consumo_mensal * 1.2) / (irradiancia * 30 * 0.8)
+    return round(sistema_kwp, 1)
 
 def calcular_economia(consumo_mensal):
     return round(consumo_mensal * 0.85, 2)

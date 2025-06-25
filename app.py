@@ -15,24 +15,30 @@ def extrair_texto(pdf):
 
 def extrair_historico_blocos(texto):
     linhas = texto.splitlines()
-    meses = []
-    valores = []
-
-    # 1. Pegar todos os meses tipo MAI25, ABR25 etc.
-    for linha in linhas:
-        if re.match(r"^(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\d{2}$", linha.strip()):
-            meses.append(linha.strip())
-
-    # 2. Pegar todos os valores numéricos significativos (com 3 ou mais dígitos)
-    for linha in linhas:
-        numeros = re.findall(r"\b\d{3,6}\b", linha)
-        for n in numeros:
-            valores.append(int(n))
-
-    # 3. Combinar os 13 primeiros meses com os 13 primeiros valores
     historico = {}
-    for i in range(min(len(meses), len(valores))):
-        historico[meses[i]] = valores[i]
+    capturando = False
+    buffer = []
+
+    for linha in linhas:
+        if "HISTÓRICO DE CONSUMO" in linha.upper():
+            capturando = True
+            continue
+        if capturando:
+            if linha.strip() == "":
+                break
+            buffer.append(linha.strip())
+
+    # Extrai apenas os 13 primeiros meses e 13 primeiros valores
+    meses = buffer[2:15]
+    consumos = buffer[15:28]
+
+    try:
+        for i in range(len(meses)):
+            mes = meses[i]
+            kwh = int(re.sub(r"\D", "", consumos[i]))  # limpa pontos, vírgulas e letras
+            historico[mes] = kwh
+    except:
+        pass  # erro de conversão? ignora
 
     return historico
 

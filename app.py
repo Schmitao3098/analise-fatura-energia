@@ -7,7 +7,7 @@ import io
 import matplotlib.pyplot as plt
 import pandas as pd
 from fpdf import FPDF
-import base64
+import os
 
 st.set_page_config(page_title="Analisador Solar", layout="centered")
 st.title("🔎 Analisador de Faturas Copel - Solar & Estratégia")
@@ -26,15 +26,18 @@ def extrair_texto(file):
         return pytesseract.image_to_string(image, lang="por")
 
 def extrair_historico(texto):
-    linhas = texto.splitlines()
     historico = {}
-    for linha in linhas:
-        if re.match(r"^[A-Z]{3}\d{2}", linha):
-            partes = linha.split()
-            if len(partes) >= 2:
-                mes, valor = partes[0], re.sub(r"[^\d]", "", partes[1])
-                if valor.isdigit():
-                    historico[mes] = int(valor)
+    linhas = texto.splitlines()
+    for i, linha in enumerate(linhas):
+        if re.search(r"HIST[ÓO]RICO DE CONSUMO", linha.upper()):
+            blocos = linhas[i+1:i+20]
+            for bloco in blocos:
+                partes = bloco.strip().split()
+                if len(partes) >= 2 and re.match(r"[A-Z]{3}\d{2}", partes[0]):
+                    kwh = re.sub(r"[^\d]", "", partes[1])
+                    if kwh.isdigit():
+                        historico[partes[0]] = int(kwh)
+            break
     return historico
 
 def analisar(texto):
@@ -52,18 +55,9 @@ def analisar(texto):
     return resultado
 
 def simular(resultado):
-    consumos = list(resultado["consumos"].values())
-
+    consumos = list(resultado.get("consumos", {}).values())
     if not consumos:
-        return {
-            "media": 0,
-            "pico": 0,
-            "minimo": 0,
-            "sazonalidade": 0,
-            "kwp": 0,
-            "economia": 0,
-            "payback": 0
-        }
+        return {"media": 0, "pico": 0, "minimo": 0, "sazonalidade": 0, "kwp": 0, "economia": 0, "payback": 0}
 
     media = sum(consumos) / len(consumos)
     pico = max(consumos)
@@ -80,15 +74,7 @@ def simular(resultado):
     economia = round(media * 0.85, 2)
     payback = round((kwp * 1300) / economia, 1) if economia > 0 else 0
 
-    return {
-        "media": media,
-        "pico": pico,
-        "minimo": minimo,
-        "sazonalidade": sazonalidade,
-        "kwp": kwp,
-        "economia": economia,
-        "payback": payback
-    }
+    return {"media": media, "pico": pico, "minimo": minimo, "sazonalidade": sazonalidade, "kwp": kwp, "economia": economia, "payback": payback}
 
 def gerar_sugestoes(res):
     sugestoes = []
@@ -97,21 +83,18 @@ def gerar_sugestoes(res):
     else:
         sugestoes.append("✅ Bom perfil para energia solar.")
 
-    grupo = res.get("grupo", "Não identificado")
-    if grupo == "Grupo B":
+    if res.get("grupo") == "Grupo B":
         sugestoes.append("⚡ Grupo B: zero grid pode compensar se o consumo for diurno.")
-    elif grupo == "Grupo A":
+    elif res.get("grupo") == "Grupo A":
         sugestoes.append("⚠️ Grupo A: atenção à demanda e horários de ponta.")
 
     if res.get("sazonalidade", 0) > 4000:
         sugestoes.append("📉 Sazonalidade alta: baterias (BESS) podem ajudar.")
-
     return sugestoes
 
 def gerar_grafico(consumos):
     if not consumos:
         return None
-
     df = pd.DataFrame(list(consumos.items()), columns=["Mês", "kWh"])
     fig, ax = plt.subplots(figsize=(8,4))
     ax.bar(df["Mês"], df["kWh"], color='goldenrod')
@@ -129,7 +112,7 @@ def gerar_pdf(resumo, grafico_buffer):
     pdf.add_page()
     pdf.set_font("Arial", size=12)
     pdf.cell(200, 10, "Relatório Solar - Análise de Fatura", ln=True)
-    pdf.cell(200, 10, f"Grupo: {resumo.get('grupo', 'Não identificado')}", ln=True)
+    pdf.cell(200, 10, f"Grupo: {resumo.get('grupo', '-')}", ln=True)
     pdf.cell(200, 10, f"Média: {resumo.get('media', 0)} kWh | Sistema: {resumo.get('kwp', 0)} kWp", ln=True)
     pdf.cell(200, 10, f"Economia: R$ {resumo.get('economia', 0)} | Payback: {resumo.get('payback', 0)} anos", ln=True)
 
@@ -141,11 +124,11 @@ def gerar_pdf(resumo, grafico_buffer):
         os.remove(img_path)
 
     pdf_output = io.BytesIO()
-    pdf_output.write(pdf.output(dest='S').encode('latin1'))
+    pdf.output(pdf_output)
     pdf_output.seek(0)
     return pdf_output
 
-# === EXECUÇÃO PRINCIPAL ===
+# === EXECUÇÃO ===
 if uploaded_file:
     texto = extrair_texto(uploaded_file)
     dados = analisar(texto)

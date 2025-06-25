@@ -26,18 +26,19 @@ def extrair_texto(file):
         return pytesseract.image_to_string(image, lang="por")
 
 def extrair_historico(texto):
-    historico = {}
     linhas = texto.splitlines()
-    for i, linha in enumerate(linhas):
-        if re.search(r"HIST[ÓO]RICO DE CONSUMO", linha.upper()):
-            blocos = linhas[i+1:i+20]
-            for bloco in blocos:
-                partes = bloco.strip().split()
-                if len(partes) >= 2 and re.match(r"[A-Z]{3}\d{2}", partes[0]):
-                    kwh = re.sub(r"[^\d]", "", partes[1])
-                    if kwh.isdigit():
-                        historico[partes[0]] = int(kwh)
-            break
+    historico = {}
+    padrao_linha = re.compile(r"^([A-Z]{3}\d{2})\s+([\d\.,]+)")
+
+    for linha in linhas:
+        linha = linha.strip()
+        match = padrao_linha.match(linha)
+        if match:
+            mes = match.group(1)
+            valor = match.group(2).replace(".", "").replace(",", "")
+            if valor.isdigit():
+                historico[mes] = int(valor)
+
     return historico
 
 def analisar(texto):

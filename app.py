@@ -122,36 +122,53 @@ def gerar_sugestoes(resultado):
     return sugestoes
 
 # === Loop principal para múltiplos arquivos ===
+def gerar_grafico(consumos):
+    if not consumos: return None
+    df = pd.DataFrame(list(consumos.items()), columns=["Mês","kWh"])
+    fig,ax = plt.subplots(figsize=(8,4))
+    ax.bar(df["Mês"],df["kWh"],color='goldenrod')
+    ax.set_title("Histórico (kWh)")
+    plt.xticks(rotation=45); buf=io.BytesIO()
+    plt.tight_layout(); plt.savefig(buf,format="png"); buf.seek(0)
+    return buf
+
+def gerar_pdf(r,buf):
+    pdf=FPDF(); pdf.add_page(); pdf.set_font("Arial",size=12)
+    pdf.cell(200,10,"Relatório Solar",ln=1)
+    pdf.cell(200,8,f"Grupo: {r['grupo']}  Total: R$ {r['valor_total']}",ln=1)
+    pdf.cell(200,8,f"Média {r['media']:.1f} | Sistema {r['kwp']} kWp | Economia R$ {r['economia']}/mês | Payback {r['payback']} anos",ln=1)
+    if buf:
+        imgf="graf.png"
+        with open(imgf,"wb") as f: f.write(buf.read())
+        pdf.image(imgf,x=10,y=50,w=180); os.remove(imgf)
+    path="rel_temp.pdf"; pdf.output(path)
+    data=open(path,"rb").read(); os.remove(path)
+    return data
+
 if uploaded_files:
-    for arquivo in uploaded_files:
-        st.markdown("---")
-        st.subheader(f"📄 Análise: {arquivo.name}")
+    uploaded_file = uploaded_files[0]  # pega o primeiro arquivo da lista
+    texto = extrair_texto(uploaded_file)
+    d = analisar(texto)
+    s = simular(d)
+    d.update(s)
 
-        tipo = arquivo.type
-        if "pdf" in tipo:
-            texto = extrair_texto_pdf(arquivo)
-        else:
-            texto = extrair_texto_imagem(arquivo)
+    st.subheader("📊 Fatura")
+    st.write(f"**Grupo:** {d['grupo']}  •  **Total:** R$ {d['valor_total']}")
+    st.write(f"📍 {d['cidade']} - {d['estado']}")
 
-        resultado = analisar_texto(texto)
+    st.subheader("📈 Histórico 12 meses")
+    st.json(d["consumos"])
+    st.write(f"Média {s['media']:.1f} • Pico {s['pico']} • Mínimo {s['minimo']}")
+    st.write(f"Sazonalidade: {s['sazonalidade']} kWh")
 
-        st.write(f"**Grupo Tarifário:** {resultado['grupo']}")
-        st.write(f"**Valor Total da Fatura:** R$ {resultado['valor_total']}")
-        st.write(f"📍 Localização: {resultado['cidade']} - {resultado['estado']}")
+    st.subheader("🔆 Simulação")
+    st.write(f"Sistema ~**{s['kwp']} kWp**, economia ~**R$ {s['economia']}/mês**, payback **{s['payback']} anos**")
 
-        if resultado["consumos"]:
-            st.write("**Histórico de Consumo:**")
-            st.json(resultado["consumos"], expanded=False)
-            st.write(f"📊 Média: {round(resultado['media'], 2)} kWh | Pico: {resultado['pico']} | Mínimo: {resultado['minimo']}")
-            st.write(f"📈 Sazonalidade: {resultado['sazonalidade']} kWh")
+    st.subheader("💡 Sugestões")
+    for x in gerar_sugestoes(s): st.markdown(f"- {x}")
 
-            kwp = calcular_kwp(resultado["media"], resultado["cidade"], resultado["estado"])
-            economia = calcular_economia(resultado["media"])
+    gbuf = gerar_grafico(d["consumos"])
+    if gbuf: st.image(gbuf)
 
-            st.subheader("🔆 Simulação Solar")
-            st.write(f"🔋 Sistema estimado: **{kwp} kWp**")
-            st.write(f"💰 Economia estimada: **R$ {economia}/mês**")
-
-        st.subheader("💡 Sugestões Estratégicas:")
-        for s in gerar_sugestoes(resultado):
-            st.markdown(f"- {s}")
+    pdf_data = gerar_pdf(d, gbuf)
+    st.download_button("📥 Relatório PDF", data=pdf_data, file_name="rel_solar.pdf")

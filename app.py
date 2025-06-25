@@ -39,19 +39,13 @@ def extrair_texto(file):
         return pytesseract.image_to_string(image, lang="por")
 
 def extrair_historico(texto):
-    linhas = texto.splitlines()
     historico = {}
-    padrao_linha = re.compile(r"^([A-Z]{3}\d{2})\s+([\d\.,]+)")
+    padrao_meses = re.findall(r'\b(?:JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\d{2}\b', texto.upper())
+    padrao_valores = re.findall(r'\b\d{3,5}\b', texto)
 
-    for linha in linhas:
-        linha = linha.strip()
-        match = padrao_linha.match(linha)
-        if match:
-            mes = match.group(1)
-            valor = match.group(2).replace(".", "").replace(",", "")
-            if valor.isdigit():
-                historico[mes] = int(valor)
-
+    if len(padrao_meses) == 12 and len(padrao_valores) >= 12:
+        for i in range(12):
+            historico[padrao_meses[i]] = int(padrao_valores[i])
     return historico
 
 def analisar(texto):
